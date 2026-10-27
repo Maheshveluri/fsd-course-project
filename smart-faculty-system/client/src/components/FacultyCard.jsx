@@ -10,7 +10,7 @@ export default function FacultyCard({ faculty, onStatusClick }) {
       <div className="faculty-card__topline">
         <span className={`status-dot status-dot--${statusClass(faculty.currentStatus)}`} />
         <span className="faculty-id">{faculty.facultyId}</span>
-        {faculty.facultyCode && <span className="faculty-id">{faculty.facultyCode}</span>}
+        {faculty.facultyCode && <span className="faculty-id">Branch: {faculty.facultyCode}</span>}
       </div>
       <h3>{faculty.name}</h3>
       <p className="department">{faculty.currentDepartment || faculty.department}</p>

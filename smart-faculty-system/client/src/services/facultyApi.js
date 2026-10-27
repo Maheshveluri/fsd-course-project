@@ -8,7 +8,8 @@ async function request(url, options = {}) {
   const data = text ? JSON.parse(text) : {}
 
   if (!response.ok) {
-    throw new Error(data.message || 'Request failed')
+    const details = Array.isArray(data.errors) ? ` ${data.errors.join(' ')}` : ''
+    throw new Error(`${data.message || 'Request failed'}${details}`)
   }
 
   return data
@@ -74,6 +75,13 @@ export function updateFacultyStatus(id, currentStatus, availabilityDate, availab
   })
 }
 
+export function clearMyAvailability(token) {
+  return request('/api/faculty/me/availability', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  })
+}
+
 export function updateFacultyLocation(id, currentLocation) {
   return request(`/api/faculty/${id}/location`, {
     method: 'PUT',
@@ -91,6 +99,25 @@ export function updateFacultyReason(id, reason) {
 export function updateFacultyTimetable(id, timetable) {
   return request(`/api/faculty/${id}/timetable`, {
     method: 'PUT',
+    body: JSON.stringify({ timetable })
+  })
+}
+
+export function importTimetableWorkbook(fileName, fileBase64) {
+  return request('/api/faculty/timetable/import', {
+    method: 'POST',
+    body: JSON.stringify({ fileName, fileBase64 })
+  })
+}
+
+export function getTimetableImportHistory() {
+  return request('/api/faculty/timetable/imports')
+}
+
+export function updateMyTimetable(timetable, token) {
+  return request('/api/faculty/me/timetable', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ timetable })
   })
 }

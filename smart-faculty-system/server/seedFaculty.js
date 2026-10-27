@@ -1,5 +1,6 @@
 import Faculty from './models/Faculty.js'
 import { sampleFaculty } from './data/sampleFaculty.js'
+import { getBranchCode } from './branchCode.js'
 
 export async function seedFaculty() {
   await Faculty.bulkWrite(sampleFaculty.map((faculty) => ({
@@ -8,7 +9,7 @@ export async function seedFaculty() {
       update: {
         $set: {
           facultyId: String(faculty.facultyId).trim().toUpperCase(),
-          facultyCode: faculty.facultyCode || '',
+          facultyCode: getBranchCode(faculty.currentDepartment || faculty.department),
           name: faculty.name,
           password: faculty.password || 'faculty123',
           phone: faculty.phone,
@@ -30,9 +31,9 @@ export async function seedFaculty() {
           availabilityDate: faculty.availabilityDate || '',
           availabilityTimeSlot: faculty.availabilityTimeSlot || '',
           availabilityStartTime: faculty.availabilityStartTime || '',
-          availabilityEndTime: faculty.availabilityEndTime || '',
-          timetable: faculty.timetable
-        }
+          availabilityEndTime: faculty.availabilityEndTime || ''
+        },
+        $setOnInsert: { timetable: faculty.timetable }
       },
       upsert: true
     }

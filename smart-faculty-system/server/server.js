@@ -13,7 +13,7 @@ const app = express()
 const port = process.env.PORT || 5000
 
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '12mb' }))
 app.get('/api/health', (request, response) => response.json({ status: 'ok' }))
 app.use('/api/student', studentRoutes)
 app.use('/api/faculty', facultyRoutes)

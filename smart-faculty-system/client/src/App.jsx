@@ -30,7 +30,7 @@ export default function App() {
     }
 
     loadFaculty()
-    const refreshTimer = setInterval(loadFaculty, 60000)
+    const refreshTimer = setInterval(loadFaculty, 10000)
     return () => clearInterval(refreshTimer)
   }, [])
 
@@ -42,6 +42,12 @@ export default function App() {
 
   function handleFacultyCreated(createdFaculty) {
     setFaculty((current) => [...current, createdFaculty].sort((first, second) => first.name.localeCompare(second.name)))
+  }
+
+  async function handleTimetableImported() {
+    const facultyList = await getFaculty()
+    setFaculty(facultyList)
+    return facultyList
   }
 
   function handleStudentLogin(studentInfo) {
@@ -65,6 +71,14 @@ export default function App() {
     setFacultyUser(null)
     setActivePage('faculty')
     setAuthMode('admin')
+  }
+
+  function handleBackToLogin() {
+    setAuthMode(facultyUser ? 'faculty' : adminUser ? 'admin' : 'student')
+    setStudent(null)
+    setFacultyUser(null)
+    setAdminUser(null)
+    setActivePage('student')
   }
 
   if (!student && !facultyUser && !adminUser) {
@@ -114,20 +128,20 @@ export default function App() {
       </div>
 
       <nav className="page-nav" aria-label="Main navigation">
-        <button className={activePage === 'student' ? 'nav-link nav-link--active' : 'nav-link'} onClick={() => { setActivePage('student'); setFacultyUser(null); setAdminUser(null); setStudent(null) }}>Student search</button>
-        <button className={activePage === 'faculty' ? 'nav-link nav-link--active' : 'nav-link'} onClick={() => { if (facultyUser || adminUser) setActivePage('faculty'); else setAuthMode('faculty') }}>Faculty update</button>
+        {!adminUser && !facultyUser && <button className={activePage === 'student' ? 'nav-link nav-link--active' : 'nav-link'} onClick={() => { setActivePage('student'); setFacultyUser(null); setAdminUser(null); setStudent(null) }}>Student search</button>}
+        <button className="nav-link" onClick={handleBackToLogin}>Back</button>
       </nav>
 
       {adminUser ? (
-        <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} />
+        <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} onTimetableImported={handleTimetableImported} />
       ) : student ? (
         activePage === 'student' ? (
           <StudentFacultySearch faculty={faculty} loading={loading} error={error} student={student} />
         ) : (
-          <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} />
+          <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} onTimetableImported={handleTimetableImported} />
         )
       ) : (
-        <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} />
+        <FacultyStatusUpdate faculty={faculty} facultyUser={facultyUser} adminUser={adminUser} onFacultyUpdated={handleFacultyUpdated} onFacultyCreated={handleFacultyCreated} onTimetableImported={handleTimetableImported} />
       )}
     </main>
   )

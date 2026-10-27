@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-const departmentOptions = ['CSE', 'CSM', 'CSN', 'CSO']
-const timeOptions = [
+const classTimeOptions = [
   '09:30 - 10:30',
   '10:30 - 11:30',
   '11:30 - 12:30',
@@ -10,24 +9,16 @@ const timeOptions = [
   '02:30 - 03:30',
   '03:30 - 04:30'
 ]
+const hours = Array.from({ length: 24 }, (_, index) => index + 1)
+const minutes = Array.from({ length: 60 }, (_, index) => index + 1)
 
 function getToday() {
   return new Date().toISOString().split('T')[0]
 }
 
-function getCurrentTimeSlot() {
-  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes()
-  const slotRanges = [
-    [570, 630, timeOptions[0]],
-    [630, 690, timeOptions[1]],
-    [690, 750, timeOptions[2]],
-    [750, 810, timeOptions[3]],
-    [810, 870, timeOptions[4]],
-    [870, 930, timeOptions[5]],
-    [930, 990, timeOptions[6]]
-  ]
-
-  return slotRanges.find(([start, end]) => currentMinutes >= start && currentMinutes < end)?.[2] || timeOptions[0]
+function getCurrentTime() {
+  const now = new Date()
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
 function getSlotStartMinutes(slot) {
@@ -46,27 +37,106 @@ function getSlotEndMinutes(slot) {
   return normalizedHours * 60 + minutes
 }
 
+function getClockMinutes(time) {
+  const [hours, minutes] = String(time || '').split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function getOriginalBranchCode(profile) {
+  const department = String(profile.currentDepartment || profile.department || '').toLowerCase()
+  if (department.includes('mathematics') || department.includes('humanities')) return 'MH'
+  if (department.includes('physical sciences') || department.includes('physics')) return 'PS'
+  if (department.includes('electrical') || department.includes('electronics') || department.includes('eee')) return 'EEE'
+  if (department.includes('mechanical')) return 'ME'
+  if (department.includes('computer science') || department.includes('cse')) return 'CSE'
+  if (department.includes('management') || department.includes('mba')) return 'MBA'
+  if (department.includes('common course')) return 'CC'
+  if (department.includes('academic administration')) return 'EAA'
+  return department.split(/[^a-z0-9]+/).filter(Boolean).map((word) => word[0]).join('').toUpperCase() || 'NA'
+}
+
+function getStatusLabel(profile) {
+  if (!profile) return 'In Class'
+  if (profile.source === 'Faculty update') {
+    return profile.reason?.trim() ? `Updated: ${profile.reason}` : `Updated: ${profile.status}`
+  }
+  if (profile.status === 'In Class') return 'Busy (In Class)'
+  if (profile.status === 'Available') return 'Free (Available)'
+  return profile.status
+}
+
+function TimePicker({ value, onChange }) {
+  const [hourText = '09', minuteText = '30'] = (value || '09:30').split(':')
+  const selectedHour = Number(hourText) || 24
+  const selectedMinute = Number(minuteText) || 60
+
+  function updateTime(hour, minute) {
+    const clockHour = hour === 24 ? 0 : hour
+    const clockMinute = minute === 60 ? 0 : minute
+    onChange(`${String(clockHour).padStart(2, '0')}:${String(clockMinute).padStart(2, '0')}`)
+  }
+
+  return (
+    <span className="time-picker">
+      <select aria-label="Select hour" value={selectedHour} onChange={(event) => updateTime(Number(event.target.value), selectedMinute)}>
+        {hours.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+      </select>
+      <span>:</span>
+      <select aria-label="Select minute" value={selectedMinute} onChange={(event) => updateTime(selectedHour, Number(event.target.value))}>
+        {minutes.map((minute) => <option key={minute} value={minute}>{String(minute).padStart(2, '0')}</option>)}
+      </select>
+    </span>
+  )
+}
+
 export default function StudentFacultySearch({ faculty, loading, error, student }) {
-  const [selectedDepartment, setSelectedDepartment] = useState('CSE')
+  const [filterKind, setFilterKind] = useState('teaching')
+  const [selectedFilter, setSelectedFilter] = useState('CSE')
   const [selectedDate, setSelectedDate] = useState(getToday)
-  const [selectedTime, setSelectedTime] = useState(getCurrentTimeSlot)
+  const [selectedTime, setSelectedTime] = useState(getCurrentTime)
+  const [timeWasSelectedManually, setTimeWasSelectedManually] = useState(false)
   const [selectedClass, setSelectedClass] = useState('')
   const [statusLookupMode, setStatusLookupMode] = useState('class')
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [profileSearch, setProfileSearch] = useState('')
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      const today = getToday()
-      if (selectedDate === today) {
-        setSelectedTime(getCurrentTimeSlot())
-      }
-    }, 60000)
-
+    if (timeWasSelectedManually || selectedDate !== getToday()) return undefined
+    const timer = setInterval(() => setSelectedTime(getCurrentTime()), 10000)
     return () => clearInterval(timer)
-  }, [selectedDate])
+  }, [selectedDate, timeWasSelectedManually])
 
   const selectedDay = new Date(`${selectedDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' })
+
+  const originalBranchOptions = useMemo(() => {
+    const options = new Map()
+    faculty.forEach((profile) => {
+      const code = getOriginalBranchCode(profile)
+      const name = profile.currentDepartment || profile.department || code
+      if (!options.has(code)) options.set(code, { value: code, label: `${code} — ${name}` })
+    })
+    return Array.from(options.values()).sort((first, second) => first.value.localeCompare(second.value))
+  }, [faculty])
+
+  const teachingDepartmentOptions = useMemo(() => Array.from(new Set(faculty
+    .map((profile) => String(profile.teachingDepartment || profile.department || '').trim().toUpperCase())
+    .filter(Boolean))).sort(), [faculty])
+
+  const filterOptions = useMemo(() => filterKind === 'original'
+    ? originalBranchOptions
+    : teachingDepartmentOptions.map((department) => ({ value: department, label: department })),
+  [filterKind, originalBranchOptions, teachingDepartmentOptions])
+
+  useEffect(() => {
+    if (filterOptions.length && !filterOptions.some((option) => option.value === selectedFilter)) {
+      setSelectedFilter(filterOptions[0].value)
+    }
+  }, [filterOptions, selectedFilter])
+
+  const filteredFaculty = useMemo(() => faculty.filter((profile) => {
+    if (filterKind === 'original') return getOriginalBranchCode(profile) === selectedFilter
+    return String(profile.teachingDepartment || profile.department || '').trim().toUpperCase() === selectedFilter
+  }), [faculty, filterKind, selectedFilter])
 
   const classOptions = useMemo(() => {
     const classes = new Set()
@@ -76,39 +146,31 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
     return Array.from(classes).sort((first, second) => first.localeCompare(second, undefined, { numeric: true }))
   }, [faculty])
 
-  const activeClass = selectedClass || (classOptions.includes('V|5CSE1') ? 'V|5CSE1' : classOptions[0] || '')
+  const activeClass = (classOptions.includes(selectedClass) && selectedClass) || (classOptions.includes('V|5CSE1') ? 'V|5CSE1' : classOptions[0] || '')
   const [activeSemester, activeSection] = activeClass.split('|')
 
-  const departmentFaculty = useMemo(() => {
-    if (!selectedDepartment) return faculty
-    return faculty.filter(({ department }) => department && department.toUpperCase() === selectedDepartment.toUpperCase())
-  }, [faculty, selectedDepartment])
-
   const scheduledFaculty = useMemo(() => {
-    const isLunchBreak = selectedTime === '01:30 - 02:30'
-    const selectedStart = getSlotStartMinutes(selectedTime)
-    const selectedEnd = getSlotEndMinutes(selectedTime)
-    return isLunchBreak ? [] : departmentFaculty.filter((member) =>
+    const selectedMinute = getClockMinutes(selectedTime)
+    return faculty.filter((member) =>
       member.timetable?.some((slot) =>
         slot.day === selectedDay &&
         slot.semester === activeSemester &&
         slot.section === activeSection &&
-        getSlotStartMinutes(slot.slot) < selectedEnd &&
-        getSlotEndMinutes(slot.slot) > selectedStart
+        getSlotStartMinutes(slot.slot) <= selectedMinute &&
+        getSlotEndMinutes(slot.slot) > selectedMinute
       )
     )
-  }, [activeSection, activeSemester, departmentFaculty, selectedDay, selectedTime])
+  }, [activeSection, activeSemester, faculty, selectedDay, selectedTime])
 
   const facultyStatusProfiles = useMemo(() => faculty.map((profile) => {
-    const selectedStart = getSlotStartMinutes(selectedTime)
-    const selectedEnd = getSlotEndMinutes(selectedTime)
+    const selectedMinute = getClockMinutes(selectedTime)
     const manualStart = profile.availabilityStartTime && profile.availabilityEndTime
-      ? getSlotStartMinutes(`${profile.availabilityStartTime} - ${profile.availabilityEndTime}`)
+      ? getClockMinutes(profile.availabilityStartTime)
       : 0
     const manualEnd = profile.availabilityStartTime && profile.availabilityEndTime
-      ? getSlotEndMinutes(`${profile.availabilityStartTime} - ${profile.availabilityEndTime}`)
+      ? getClockMinutes(profile.availabilityEndTime)
       : 0
-    const manualStatusApplies = profile.availabilityDate === selectedDate && manualStart < selectedEnd && manualEnd > selectedStart
+    const manualStatusApplies = profile.availabilityDate === selectedDate && manualStart <= selectedMinute && manualEnd > selectedMinute
 
     if (manualStatusApplies) {
       return { ...profile, status: profile.currentStatus, source: 'Faculty update', slot: null }
@@ -116,8 +178,8 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
 
     const slot = profile.timetable?.find((entry) =>
       entry.day === selectedDay &&
-      getSlotStartMinutes(entry.slot) < selectedEnd &&
-      getSlotEndMinutes(entry.slot) > selectedStart
+      getSlotStartMinutes(entry.slot) <= selectedMinute &&
+      getSlotEndMinutes(entry.slot) > selectedMinute
     )
 
     return slot
@@ -125,10 +187,11 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
       : { ...profile, status: 'Available', source: 'No class scheduled', slot: null }
   }), [faculty, selectedDate, selectedDay, selectedTime])
 
-  const selectedProfile = facultyStatusProfiles.find((profile) => profile._id === selectedProfileId) || facultyStatusProfiles[0] || null
   const visibleFacultyProfiles = facultyStatusProfiles.filter((profile) =>
-    `${profile.name} ${profile.facultyId} ${profile.department} ${profile.designation}`.toLowerCase().includes(profileSearch.trim().toLowerCase())
+    filteredFaculty.some((filteredProfile) => filteredProfile._id === profile._id) &&
+    `${profile.name} ${profile.facultyId} ${getOriginalBranchCode(profile)} ${profile.currentDepartment} ${profile.teachingDepartment} ${profile.department} ${profile.designation}`.toLowerCase().includes(profileSearch.trim().toLowerCase())
   )
+  const selectedProfile = visibleFacultyProfiles.find((profile) => profile._id === selectedProfileId) || visibleFacultyProfiles[0] || null
 
   const classDays = activeClass.startsWith('III|3CSE') || activeClass.startsWith('V|5CSE')
     ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -142,7 +205,8 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
       .map((slot) => ({ ...slot, facultyName: member.name, facultyId: member.facultyId })) || [])
       .sort((first, second) => {
         const dayDifference = dayOrder.indexOf(first.day) - dayOrder.indexOf(second.day)
-        return dayDifference || getSlotStartMinutes(first.slot) - getSlotStartMinutes(second.slot)
+        return dayDifference || getSlotStartMinutes(first.slot) - getSlotStartMinutes(second.slot) ||
+          first.facultyId.localeCompare(second.facultyId, undefined, { numeric: true, sensitivity: 'base' })
       })
 
     const groupedEntries = entries.reduce((groups, entry) => {
@@ -161,7 +225,7 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
 
     const mergedEntries = Array.from(groupedEntries.values()).map((entry) => ({
       ...entry,
-      facultyId: entry.facultyIds.sort().join('|'),
+      facultyId: entry.facultyIds.sort((first, second) => first.localeCompare(second, undefined, { numeric: true, sensitivity: 'base' })).join('|'),
       facultyName: entry.facultyNames.join(' / ')
     })).reduce((currentEntries, entry) => {
       const previousEntry = currentEntries.at(-1)
@@ -183,7 +247,7 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
     return mergedEntries
   }, [activeClass, faculty])
 
-  const classTimes = timeOptions
+  const classTimes = classTimeOptions
 
   return (
     <section className="page-section student-layout">
@@ -191,28 +255,11 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
         <div>
           <p className="eyebrow">Student view</p>
           <h2>Find your faculty</h2>
-          <p className="section-description">Hi {student.rollNo}, choose a department and check faculty availability before you visit.</p>
+          <p className="section-description">Hi {student.rollNo}, use Find faculty profile to filter by original branch or teaching department.</p>
         </div>
         <div className="student-summary">
           <span className="student-pill">{student.rollNo}</span>
         </div>
-      </div>
-
-      <div className="department-filter">
-        <label className="search-box department-box">
-          <span>Select department</span>
-          <input
-            list="department-options"
-            value={selectedDepartment}
-              onChange={(event) => setSelectedDepartment(event.target.value.toUpperCase())}
-            placeholder="CSE"
-          />
-        </label>
-        <datalist id="department-options">
-          {departmentOptions.map((department) => (
-            <option key={department} value={department} />
-          ))}
-        </datalist>
       </div>
 
       <section className="class-timetable-panel">
@@ -292,7 +339,7 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
                               <strong>{slot.subject}</strong>
                               <span>{slot.facultyName}</span>
                               {getSlotStartMinutes(slot.slot) !== currentStart && <small>{slot.slot}</small>}
-                              <small>{slot.section} | {slot.block}{slot.room ? ` | Room ${slot.room}` : ''}</small>
+                              <small>Section: {slot.section} | Teaching block: {slot.block || 'Not specified'}{slot.room ? ` | Room: ${slot.room}` : ''}</small>
                             </div>
                           ))}
                         </td>
@@ -315,9 +362,7 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
         </label>
         <label className="search-box">
           <span>Select time</span>
-          <select value={selectedTime} onChange={(event) => setSelectedTime(event.target.value)}>
-            {timeOptions.map((time) => <option key={time}>{time}</option>)}
-          </select>
+          <TimePicker value={selectedTime} onChange={(time) => { setSelectedTime(time); setTimeWasSelectedManually(true) }} />
         </label>
         <p className="schedule-selection">{selectedDay}, {selectedTime}</p>
       </div>
@@ -337,19 +382,33 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
       {!loading && !error && statusLookupMode === 'class' && (
         <>
           {scheduledFaculty.length === 0 && (
-            <p className="message">{selectedTime === '01:30 - 02:30' ? 'Lunch break: no faculty availability during this time.' : `No faculty from ${activeSection} is scheduled for ${selectedDay}, ${selectedTime}.`}</p>
+            <p className="message">No faculty from {activeSection} is scheduled for {selectedDay} at {selectedTime}.</p>
           )}
           {scheduledFaculty.length > 0 && (
             <section className="faculty-status-list" aria-label="Faculty current status for selected class">
               <h3>Current status · {activeSection}</h3>
-              {scheduledFaculty.map((member) => (
-                <div className="detail-row" key={member.facultyId}>
-                  <span>{member.name}</span>
-                  <strong className={`status-text status-text--${member.currentStatus.toLowerCase().replaceAll(' ', '-')}`}>
-                    {member.currentStatus}
-                  </strong>
-                </div>
-              ))}
+              {scheduledFaculty.map((member) => {
+                const statusProfile = facultyStatusProfiles.find((profile) => profile._id === member._id)
+                const classSlot = member.timetable?.find((slot) =>
+                  slot.day === selectedDay &&
+                  slot.semester === activeSemester &&
+                  slot.section === activeSection &&
+                  getSlotStartMinutes(slot.slot) <= getClockMinutes(selectedTime) &&
+                  getSlotEndMinutes(slot.slot) > getClockMinutes(selectedTime)
+                )
+
+                return (
+                  <div className="detail-row" key={member.facultyId}>
+                    <span>
+                      {member.name}
+                      {classSlot && <small className="faculty-meta">{classSlot.subject} | Teaching block: {classSlot.block || 'Not specified'}{classSlot.room ? ` | Room: ${classSlot.room}` : ''}</small>}
+                    </span>
+                    <strong className={`status-text status-text--${(statusProfile?.status || 'In Class').toLowerCase().replaceAll(' ', '-')}`}>
+                      {getStatusLabel(statusProfile)}
+                    </strong>
+                  </div>
+                )
+              })}
             </section>
           )}
         </>
@@ -357,10 +416,25 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
 
       {!loading && !error && statusLookupMode === 'all' && (
         <section className="faculty-status-list" aria-label="Selected faculty status">
-          <label className="search-box faculty-directory-search">
-            <span>Find faculty profile</span>
-            <input value={profileSearch} onChange={(event) => setProfileSearch(event.target.value)} placeholder="Search name, ID, or department" />
-          </label>
+          <div className="faculty-search-controls">
+            <label className="search-box">
+              <span>Filter by</span>
+              <select value={filterKind} onChange={(event) => setFilterKind(event.target.value)}>
+                <option value="original">Original branch code</option>
+                <option value="teaching">Teaching department</option>
+              </select>
+            </label>
+            <label className="search-box">
+              <span>{filterKind === 'original' ? 'Select original branch' : 'Select teaching department'}</span>
+              <select value={selectedFilter} onChange={(event) => setSelectedFilter(event.target.value)}>
+                {filterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label className="search-box faculty-directory-search">
+              <span>Find faculty profile</span>
+              <input value={profileSearch} onChange={(event) => setProfileSearch(event.target.value)} placeholder="Search name, ID, or department" />
+            </label>
+          </div>
           <div className="faculty-directory" role="list" aria-label="Faculty profiles">
             {visibleFacultyProfiles.map((profile) => (
               <button
@@ -373,10 +447,10 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
               >
                 <span className="faculty-directory-identity">
                   <strong>{profile.name}</strong>
-                  <small>{profile.facultyId} · {profile.designation || 'Faculty'} · {profile.department}</small>
+                  <small>Faculty ID: {profile.facultyId} · Original branch code: {getOriginalBranchCode(profile)} · {profile.currentDepartment || profile.department}</small>
                 </span>
                 <strong className={`status-text status-text--${profile.status.toLowerCase().replaceAll(' ', '-')}`}>
-                  {profile.status === 'In Class' ? 'Busy (In Class)' : profile.status === 'Available' ? 'Free (Available)' : profile.status}
+                  {getStatusLabel(profile)}
                 </strong>
               </button>
             ))}
@@ -385,17 +459,19 @@ export default function StudentFacultySearch({ faculty, loading, error, student 
           {selectedProfile && (
             <>
               <h3>{selectedProfile.name}</h3>
-              <p className="faculty-meta">{selectedProfile.facultyId} · {selectedProfile.designation || 'Faculty'} · {selectedProfile.department}</p>
+              <p className="faculty-meta">Faculty ID: {selectedProfile.facultyId} · Original branch code: {getOriginalBranchCode(selectedProfile)} · Original branch: {selectedProfile.currentDepartment || selectedProfile.department} · Teaching branch: {selectedProfile.teachingDepartment || selectedProfile.department}</p>
               <div className="detail-row">
                 <span>Status · {selectedDay}, {selectedTime}</span>
                 <strong className={`status-text status-text--${selectedProfile.status.toLowerCase().replaceAll(' ', '-')}`}>
-                  {selectedProfile.status === 'In Class' ? 'Busy (In Class)' : selectedProfile.status === 'Available' ? 'Free (Available)' : selectedProfile.status}
+                  {getStatusLabel(selectedProfile)}
                 </strong>
               </div>
-              <p className="faculty-meta">{selectedProfile.source}</p>
+              {selectedProfile.source === 'Faculty update'
+                ? <p className="faculty-meta">Faculty update active until {selectedProfile.availabilityEndTime}</p>
+                : <p className="faculty-meta">{selectedProfile.source}</p>}
               {selectedProfile.slot && (
                 <p className="faculty-meta">
-                  {selectedProfile.slot.subject}{selectedProfile.slot.section ? ` · ${selectedProfile.slot.section}` : ''}{selectedProfile.slot.room ? ` · Room ${selectedProfile.slot.room}` : ''}
+                  {selectedProfile.slot.subject}{selectedProfile.slot.section ? ` · ${selectedProfile.slot.section}` : ''}{selectedProfile.slot.block ? ` · Teaching block: ${selectedProfile.slot.block}` : ' · Teaching block: Not specified'}{selectedProfile.slot.room ? ` · Room: ${selectedProfile.slot.room}` : ''}
                 </p>
               )}
               {selectedProfile.currentLocation && <p className="faculty-meta">Location: {selectedProfile.currentLocation}</p>}
